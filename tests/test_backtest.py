@@ -21,6 +21,7 @@ from tradingagents.backtest.gate import Plan, Refusal, plan_backtest
 from tradingagents.backtest.strategies import BuyAndHold, MaCross, RsiReversion
 from tradingagents.backtest.metrics import calc_metrics
 from tradingagents.backtest.models import TradeRecord
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 # ── canonical_code ──
@@ -255,3 +256,43 @@ class TestGate:
         # 510300 是沪深300 ETF
         plan = plan_backtest(["510300.SH"], "2024-01-01", "2024-12-31")
         assert isinstance(plan, Refusal)
+
+
+# ── 输出清洗 ──
+
+
+class TestStripThinkTags:
+    def test_removes_think_block(self):
+        text = "<think>reasoning here</think>Final answer"
+        assert strip_think_tags(text) == "Final answer"
+
+    def test_removes_multiline_think(self):
+        text = "<think>\nline1\nline2\n</think>\nActual output"
+        assert strip_think_tags(text) == "Actual output"
+
+    def test_no_think_tags(self):
+        text = "Just normal text"
+        assert strip_think_tags(text) == "Just normal text"
+
+    def test_multiple_think_blocks(self):
+        text = "A<think>x</think>B<think>y</think>C"
+        assert strip_think_tags(text) == "ABC"
+
+    def test_empty_string(self):
+        assert strip_think_tags("") == ""
+
+
+class TestCompactHistory:
+    def test_short_history_unchanged(self):
+        history = "\nBull Analyst: buy\nBear Analyst: sell"
+        assert compact_history(history, max_turns=4) == history
+
+    def test_long_history_compressed(self):
+        turns = [f"\n{'Bull' if i % 2 == 0 else 'Bear'} Analyst: point {i}" for i in range(8)]
+        history = "".join(turns)
+        result = compact_history(history, max_turns=4)
+        assert "早期论点摘要" in result
+        assert "近期完整辩论" in result
+
+    def test_empty_history(self):
+        assert compact_history("") == ""

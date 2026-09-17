@@ -1,9 +1,12 @@
-"""辩论历史滚动窗口压缩。
+"""辩论历史滚动窗口压缩 + 输出清洗。
 
 多空 / 风险辩手每轮把完整 `history` 注入 prompt，同时再单独注入一次
 `current_response`（恰是 history 的最后一条发言），导致最新发言被重复注入、
 注入 token 随辩论轮数平方增长。这里提供 `compact_history`：保留最近
 `max_turns` 条发言全文，更早的压成「角色: 首句要点」一行，供辩手在注入前调用。
+
+`strip_think_tags` 去除 MiniMax / DeepSeek 等模型输出中的 ``<think>...</think>`` 块，
+避免推理过程泄漏到最终报告。
 """
 
 from __future__ import annotations
@@ -70,3 +73,14 @@ def _first_sentence(turn: str) -> str:
     if len(body) > _SUMMARY_MAX_CHARS:
         return body[:_SUMMARY_MAX_CHARS] + "…"
     return body
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def strip_think_tags(text: str) -> str:
+    """去除 ``<think>...</think>`` 块（MiniMax / DeepSeek reasoning 模型输出）。
+
+    这些块是模型的内部推理过程，不应出现在最终报告或辩论历史中。
+    """
+    return _THINK_RE.sub("", text).strip()

@@ -1,6 +1,6 @@
 
 
-from tradingagents.agents.utils.context import compact_history
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 def create_bear_researcher(llm):
@@ -53,7 +53,7 @@ Deliver a compelling bear argument grounded in A-share market realities. Refute 
 
         response = llm.invoke(prompt)
 
-        argument = f"Bear Analyst: {response.content}"
+        argument = f"Bear Analyst: {strip_think_tags(response.content)}"
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,

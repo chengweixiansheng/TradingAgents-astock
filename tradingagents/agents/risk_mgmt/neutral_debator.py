@@ -1,6 +1,6 @@
 
 
-from tradingagents.agents.utils.context import compact_history
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 def create_neutral_debator(llm):
@@ -49,7 +49,7 @@ Advocate for a balanced, position-sized approach that captures A-share upside wh
 
         response = llm.invoke(prompt)
 
-        argument = f"Neutral Analyst: {response.content}"
+        argument = f"Neutral Analyst: {strip_think_tags(response.content)}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

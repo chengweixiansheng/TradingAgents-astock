@@ -1,6 +1,6 @@
 
 
-from tradingagents.agents.utils.context import compact_history
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 def create_aggressive_debator(llm):
@@ -48,7 +48,7 @@ Engage actively, debate persuasively, and assert why aggressive positioning is o
 
         response = llm.invoke(prompt)
 
-        argument = f"Aggressive Analyst: {response.content}"
+        argument = f"Aggressive Analyst: {strip_think_tags(response.content)}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

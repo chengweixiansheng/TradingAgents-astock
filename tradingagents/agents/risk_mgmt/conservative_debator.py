@@ -1,6 +1,6 @@
 
 
-from tradingagents.agents.utils.context import compact_history
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 def create_conservative_debator(llm):
@@ -49,7 +49,7 @@ Demonstrate why a conservative stance is the safest path, especially given A-sha
 
         response = llm.invoke(prompt)
 
-        argument = f"Conservative Analyst: {response.content}"
+        argument = f"Conservative Analyst: {strip_think_tags(response.content)}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

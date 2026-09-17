@@ -1,6 +1,6 @@
 
 
-from tradingagents.agents.utils.context import compact_history
+from tradingagents.agents.utils.context import compact_history, strip_think_tags
 
 
 def create_bull_researcher(llm):
@@ -52,7 +52,7 @@ Deliver a compelling bull argument that integrates A-share market dynamics. Refu
 
         response = llm.invoke(prompt)
 
-        argument = f"Bull Analyst: {response.content}"
+        argument = f"Bull Analyst: {strip_think_tags(response.content)}"
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,
