@@ -1329,5 +1329,96 @@ def performance(
     console.print(Markdown(format_report(summary)))
 
 
+@app.command()
+def backtest(
+    codes: str = typer.Argument(..., help="股票代码，逗号分隔，如 600519 或 600519,300750"),
+    start_date: str = typer.Argument(..., help="起始日期 YYYY-MM-DD"),
+    end_date: str = typer.Argument(..., help="结束日期 YYYY-MM-DD"),
+    style: str = typer.Option("swing", "--style", "-s", help="口径: long/swing/intraday"),
+    strategy: str = typer.Option("buy_and_hold", "--strategy", "-t", help="策略: buy_and_hold/ma_cross/rsi_reversion"),
+    json_out: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
+):
+    """历史回测：验证交易策略在 A 股的历史表现。
+
+    闸口机制会在跑之前先判断这个回测成不成立。
+    示例：tradingagents backtest 600519 2022-01-01 2025-12-31 --style long --strategy ma_cross
+    """
+    import json as _json
+
+    from tradingagents.backtest.gate import Plan, plan_backtest
+    from tradingagents.backtest.run import BacktestNotValid, run
+    from tradingagents.backtest.strategies import BUILTIN
+
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        console.print("[red]Error: No stock codes provided[/red]")
+        raise typer.Exit(1)
+
+    # Gate check
+    plan = plan_backtest(codes=code_list, start=start_date, end=end_date, style=style)
+    if not isinstance(plan, Plan):
+        console.print(f"[red]闸口拒绝：{plan.reason}[/red]")
+        console.print(f"[yellow]建议：{plan.remedy}[/yellow]")
+        raise typer.Exit(1)
+
+    # Resolve strategy
+    if strategy not in BUILTIN:
+        console.print(f"[red]Unknown strategy: {strategy}[/red]")
+        console.print(f"[yellow]Available: {', '.join(BUILTIN)}[/yellow]")
+        raise typer.Exit(1)
+    strat = BUILTIN[strategy]()
+
+    console.print(f"[cyan]Running backtest: {', '.join(plan.codes)} ({plan.style.label})[/cyan]")
+    console.print(f"[dim]Period: {plan.start} → {plan.end} | Strategy: {strat.name}[/dim]")
+
+    import tempfile
+    from pathlib import Path
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="backtest-") as scratch:
+            result = run(plan, strat, run_dir=Path(scratch))
+
+        m = result.metrics
+        if json_out:
+            output = {
+                "ok": True,
+                "strategy": result.strategy,
+                "codes": plan.codes,
+                "period": f"{plan.start} → {plan.end}",
+                "metrics": {k: m[k] for k in ("total_return", "annual_return", "max_drawdown",
+                                                "sharpe", "win_rate", "trade_count") if k in m},
+                "limits": plan.limits,
+            }
+            console.print_json(_json.dumps(output, ensure_ascii=False))
+        else:
+            console.print()
+            console.print(Panel(
+                f"[bold]{plan.market.label} · {plan.style.label}[/bold] {result.strategy}\n"
+                f"标的: {', '.join(plan.codes)}\n"
+                f"区间: {plan.start} → {plan.end}\n\n"
+                f"总收益: {m.get('total_return', 0) * 100:.2f}%\n"
+                f"年化: {m.get('annual_return', 0) * 100:.2f}%\n"
+                f"最大回撤: {m.get('max_drawdown', 0) * 100:.2f}%\n"
+                f"夏普: {round(m.get('sharpe') or 0, 2)}\n"
+                f"胜率: {m.get('win_rate', 0) * 100:.1f}%\n"
+                f"交易笔数: {m.get('trade_count', 0)}",
+                title="Backtest Result",
+                border_style="green",
+                padding=(1, 2),
+            ))
+            if result.missing:
+                console.print(f"[yellow]Warning: {result.missing}[/yellow]")
+            console.print("[dim]限制说明:[/dim]")
+            for lim in plan.limits:
+                console.print(f"  [dim]· {lim}[/dim]")
+
+    except BacktestNotValid as exc:
+        console.print(f"[red]回测不成立：{exc}[/red]")
+        raise typer.Exit(1)
+    except Exception as exc:
+        console.print(f"[red]Backtest failed: {type(exc).__name__}: {exc}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

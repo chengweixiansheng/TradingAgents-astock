@@ -28,6 +28,9 @@ from tradingagents.agents.utils.signal_data_tools import (
     get_lockup_expiry,
     get_industry_comparison,
 )
+from tradingagents.agents.utils.backtest_tools import (
+    run_backtest,
+)
 
 
 def get_language_instruction() -> str:

@@ -90,6 +90,12 @@ TOOLS_CATEGORIES = {
             "get_lockup_expiry",
             "get_industry_comparison",
         ]
+    },
+    "backtest": {
+        "description": "Historical backtest for strategy validation",
+        "tools": [
+            "run_backtest",
+        ]
     }
 }
 
