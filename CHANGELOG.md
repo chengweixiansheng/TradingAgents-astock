@@ -22,6 +22,11 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ## [0.5.16] — 2026-09-02
 
+### 兼容性：`langgraph` 最低版本提升至 1.0
+
+缺失数据追踪在 `ToolNode` 上使用 `wrap_tool_call`，该参数从 LangGraph 1.0 起提供。
+因此项目依赖由 `langgraph>=0.4.8` 提升为 `langgraph>=1.0`；使用旧版 LangGraph 的用户需要先升级依赖。
+
 ### 修复：只传部分 `config` 时 `TradingAgentsGraph` 直接 KeyError（#101）
 
 README「快速开始 · 3. 运行分析」的示例只给了 4 个键（`llm_provider` / 两个模型 / `output_language`），

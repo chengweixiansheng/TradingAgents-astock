@@ -38,7 +38,12 @@ def test_graph_tool_node_matches_analyst_tools():
     import tradingagents.graph.trading_graph as tg
 
     src = inspect.getsource(tg.TradingAgentsGraph._create_tool_nodes)
-    social_block = re.search(r'"social": ToolNode\(\s*\[(.*?)\]\s*\)', src, re.S)
+    social_block = re.search(
+        r'"social": ToolNode\(\s*\[(.*?)\]\s*'
+        r'(?:,\s*wrap_tool_call\s*=\s*make_tool_call_recorder\("social"\))?\s*,?\s*\)',
+        src,
+        re.S,
+    )
     assert social_block, "找不到 social 的 ToolNode 定义"
     registered = {
         t.strip().rstrip(",")
