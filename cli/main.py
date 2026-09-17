@@ -1420,5 +1420,59 @@ def backtest(
         raise typer.Exit(1)
 
 
+@app.command()
+def review(
+    date: str = typer.Argument(None, help="复盘日期 YYYY-MM-DD，默认今天"),
+    json_out: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
+):
+    """A 股短线复盘：情绪/资金/题材/龙虎榜/龙头跟踪五维度分析。
+
+    示例：tradingagents review 2024-09-08
+    """
+    import json as _json
+
+    from tradingagents.review.config import make_llm
+    from tradingagents.review.data import build_data
+    from tradingagents.review.review_graph import build_review_graph
+    from tradingagents.review.review_store import save
+    from tradingagents.review.util import china_today
+
+    target_date = date or china_today()
+    console.print(f"[bold]开始复盘: {target_date}[/bold]")
+
+    try:
+        # 构建数据
+        console.print("[dim]正在取数...[/dim]")
+        data = build_data(target_date)
+
+        # 构建 LLM
+        llm = make_llm()
+
+        # 运行复盘管线
+        console.print("[dim]运行复盘管线（5 分析师 + 综合判断）...[/dim]")
+        graph = build_review_graph()
+        result = graph.invoke({
+            "date": target_date,
+            "data": data,
+            "llm": llm,
+        })
+
+        # 保存
+        path = save(target_date, result)
+        console.print(f"[green]✅ 复盘完成，已保存到 {path}[/green]")
+
+        if json_out:
+            console.print(_json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        else:
+            # 显示摘要
+            summary = result.get("summary", result.get("judge_decision", ""))
+            if summary:
+                console.print(Panel(summary, title="复盘摘要", border_style="green", padding=(1, 2)))
+
+    except Exception as exc:
+        console.print(f"[red]复盘失败：{type(exc).__name__}: {exc}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
