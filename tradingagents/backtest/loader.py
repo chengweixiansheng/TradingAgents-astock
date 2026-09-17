@@ -22,13 +22,17 @@ import pandas as pd
 
 # ── 延迟导入 ──
 
+_mootdx_call = None
 _sina_kline = None
 _yf = None
 
 
 def _ensure_imports():
     """延迟导入，避免循环依赖和重模块开销。"""
-    global _sina_kline, _yf
+    global _mootdx_call, _sina_kline, _yf
+    if _mootdx_call is None:
+        from tradingagents.dataflows.a_stock import _mootdx_call as _mc
+        _mootdx_call = _mc
     if _sina_kline is None:
         from tradingagents.dataflows.a_stock import _sina_kline_fallback as _sk
         _sina_kline = _sk
@@ -52,7 +56,7 @@ def price_basis(market: str) -> str:
     """数据来源说明，随回测结果一起呈现。"""
     if market == "a_share":
         return (
-            "A 股取新浪财经 HTTP 日线（免鉴权公开接口）；"
+            "A 股取通达信 mootdx TCP 日线，TCP 7709 不可达时自动降级到新浪财经 HTTP；"
             "未做前复权处理，原始收盘价可能包含分红除权差异。"
             "引擎不单独记现金分红、再投资或公司行动现金流。"
             "历史序列按本次取数版本重建，不同日期重跑可变。"
@@ -146,23 +150,55 @@ def assert_a_share_stock(code: str) -> None:
             )
 
 
-# ── A 股取数（新浪 HTTP，不依赖 mootdx TCP）──
+# ── A 股取数（mootdx TCP 优先，新浪 HTTP 降级）──
 
 def _fetch_a_share(code: str, start_date: str, end_date: str) -> tuple[pd.DataFrame, int, str]:
-    """从新浪 HTTP API 取 A 股日线。
-
-    直接走 _sina_kline_fallback，不经过 mootdx TCP（端口 7709 常被防火墙拦截）。
-    新浪接口返回 JSON，15 秒超时，稳定性好。
+    """取 A 股日线：mootdx TCP 优先，连不上或取不到就降级到新浪 HTTP。
 
     返回: (DataFrame, 停牌bar数, 数据源描述)
     """
     _ensure_imports()
 
     six = bare(code)
+
+    # ── 优先 mootdx TCP ──
+    try:
+        df = _mootdx_call("bars", symbol=six, category=4, offset=800)
+        if df is not None and not df.empty:
+            # mootdx 返回的列：open, high, low, close, volume, amount, datetime(索引+列)
+            df = df.drop(columns=["datetime", "year", "month", "day", "hour", "minute"],
+                         errors="ignore")
+            df = df.reset_index()  # index 'datetime' → column 'datetime'
+            df = df.rename(columns={"datetime": "Date"})
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+
+            # 过滤无效数据
+            before = len(df)
+            df = df.dropna(subset=["open", "high", "low", "close"])
+            df = df[(df[["open", "high", "low", "close"]] > 0).all(axis=1)]
+            halted = before - len(df)
+
+            # 添加 preclose
+            df["pre_close"] = df["close"].shift(1)
+
+            # 确保索引是 datetime64[ns]
+            if df.index.dtype != "datetime64[ns]":
+                df.index = df.index.astype("datetime64[ns]")
+
+            # 按日期过滤
+            df = df.loc[start_date:end_date]
+
+            if not df.empty:
+                return df, halted, "mootdx TCP"
+    except Exception:
+        pass  # 降级到新浪
+
+    # ── 降级：新浪 HTTP ──
     df = _sina_kline(six, start_date, end_date)
 
     if df.empty:
-        raise LoaderError(f"新浪 HTTP 取 {six} 返回空数据")
+        raise LoaderError(f"mootdx 和新浪 HTTP 取 {six} 均返回空数据")
 
     # _sina_kline_fallback 返回的列：Date, Open, High, Low, Close, Volume
     df = df.set_index("Date").sort_index()
@@ -186,7 +222,7 @@ def _fetch_a_share(code: str, start_date: str, end_date: str) -> tuple[pd.DataFr
     if df.index.dtype != "datetime64[ns]":
         df.index = df.index.astype("datetime64[ns]")
 
-    return df, halted, "sina HTTP"
+    return df, halted, "sina HTTP (fallback)"
 
 
 # ── US/HK 取数 ──
