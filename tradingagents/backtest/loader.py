@@ -22,23 +22,29 @@ import pandas as pd
 
 # ── 延迟导入 ──
 
-_mootdx_call = None
+_bs = None
 _sina_kline = None
 _yf = None
 
 
 def _ensure_imports():
     """延迟导入，避免循环依赖和重模块开销。"""
-    global _mootdx_call, _sina_kline, _yf
-    if _mootdx_call is None:
-        from tradingagents.dataflows.a_stock import _mootdx_call as _mc
-        _mootdx_call = _mc
+    global _bs, _sina_kline, _yf
+    if _bs is None:
+        import baostock as _b
+        _bs = _b
     if _sina_kline is None:
         from tradingagents.dataflows.a_stock import _sina_kline_fallback as _sk
         _sina_kline = _sk
     if _yf is None:
         import yfinance as _yf_mod
         _yf = _yf_mod
+
+
+def _to_bs_code(code: str) -> str:
+    """600519.SH → sh.600519（baostock 格式）。"""
+    six, ex = code.split(".")
+    return f"{ex.lower()}.{six}"
 
 
 # ── 市场检测 ──
@@ -56,8 +62,8 @@ def price_basis(market: str) -> str:
     """数据来源说明，随回测结果一起呈现。"""
     if market == "a_share":
         return (
-            "A 股取通达信 mootdx TCP 日线，TCP 7709 不可达时自动降级到新浪财经 HTTP；"
-            "未做前复权处理，原始收盘价可能包含分红除权差异。"
+            "A 股取 baostock 前复权日线（adjustflag=2），与 vibe-astock 同源；"
+            "baostock 不可用时降级到新浪财经 HTTP（未复权）。"
             "引擎不单独记现金分红、再投资或公司行动现金流。"
             "历史序列按本次取数版本重建，不同日期重跑可变。"
         )
@@ -150,55 +156,65 @@ def assert_a_share_stock(code: str) -> None:
             )
 
 
-# ── A 股取数（mootdx TCP 优先，新浪 HTTP 降级）──
+# ── A 股取数（baostock 前复权优先，新浪 HTTP 降级）──
 
 def _fetch_a_share(code: str, start_date: str, end_date: str) -> tuple[pd.DataFrame, int, str]:
-    """取 A 股日线：mootdx TCP 优先，连不上或取不到就降级到新浪 HTTP。
+    """取 A 股日线：baostock 前复权优先，登录失败或取不到就降级到新浪 HTTP。
 
     返回: (DataFrame, 停牌bar数, 数据源描述)
     """
     _ensure_imports()
 
-    six = bare(code)
-
-    # ── 优先 mootdx TCP ──
+    # ── 优先 baostock 前复权日线 ──
     try:
-        df = _mootdx_call("bars", symbol=six, category=4, offset=800)
-        if df is not None and not df.empty:
-            # mootdx 返回的列：open, high, low, close, volume, amount, datetime(索引+列)
-            df = df.drop(columns=["datetime", "year", "month", "day", "hour", "minute"],
-                         errors="ignore")
-            df = df.reset_index()  # index 'datetime' → column 'datetime'
-            df = df.rename(columns={"datetime": "Date"})
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.set_index("Date").sort_index()
-
-            # 过滤无效数据
-            before = len(df)
-            df = df.dropna(subset=["open", "high", "low", "close"])
-            df = df[(df[["open", "high", "low", "close"]] > 0).all(axis=1)]
-            halted = before - len(df)
-
-            # 添加 preclose
-            df["pre_close"] = df["close"].shift(1)
-
-            # 确保索引是 datetime64[ns]
-            if df.index.dtype != "datetime64[ns]":
-                df.index = df.index.astype("datetime64[ns]")
-
-            # 按日期过滤
-            df = df.loc[start_date:end_date]
-
-            if not df.empty:
-                return df, halted, "mootdx TCP"
+        bs_code = _to_bs_code(code)
+        lg = _bs.login()
+        if lg.error_code == "0":
+            try:
+                rs = _bs.query_history_k_data_plus(
+                    bs_code,
+                    "date,code,open,high,low,close,volume,tradestatus",
+                    start_date=start_date,
+                    end_date=end_date,
+                    frequency="d",
+                    adjustflag="2",  # 前复权
+                )
+                if rs.error_code == "0":
+                    rows = []
+                    while rs.next():
+                        rows.append(dict(zip(rs.fields, rs.get_row_data())))
+                    if rows:
+                        df = pd.DataFrame(rows)
+                        # 转数值列
+                        for col in ["open", "high", "low", "close", "volume"]:
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                        # 停牌标记
+                        halted = 0
+                        if "tradestatus" in df.columns:
+                            mask = df["tradestatus"].astype(str) == "1"
+                            halted = int((~mask).sum())
+                            df = df[mask]
+                        df = df.drop(columns=["code", "tradestatus"], errors="ignore")
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.set_index("date").sort_index()
+                        # 添加 preclose
+                        df["pre_close"] = df["close"].shift(1)
+                        # 确保 datetime64[ns]
+                        if df.index.dtype != "datetime64[ns]":
+                            df.index = df.index.astype("datetime64[ns]")
+                        if not df.empty:
+                            return df, halted, "baostock (前复权)"
+            finally:
+                _bs.logout()
     except Exception:
         pass  # 降级到新浪
 
     # ── 降级：新浪 HTTP ──
+    six = bare(code)
     df = _sina_kline(six, start_date, end_date)
 
     if df.empty:
-        raise LoaderError(f"mootdx 和新浪 HTTP 取 {six} 均返回空数据")
+        raise LoaderError(f"baostock 和新浪 HTTP 取 {code} 均返回空数据")
 
     # _sina_kline_fallback 返回的列：Date, Open, High, Low, Close, Volume
     df = df.set_index("Date").sort_index()
