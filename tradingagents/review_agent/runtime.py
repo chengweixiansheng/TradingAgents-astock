@@ -24,7 +24,7 @@ from .product_policy import PRODUCT_POLICY, ORDINARY_STATISTICS_POLICY, has_trad
 
 from .process_io import read_chunk, write_input
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]  # tradingagents/review_agent/ → 项目根目录
 CLI = REPO / "runtime/node_modules/@openai/codex/bin/codex.js"
 TOOLS = ("list_evidence", "read_evidence", "compare_metric", "submit_answer", "fetch_stock_prices", "compare_stock_prices")
 RESOURCE_TOOLS = ("list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource")
