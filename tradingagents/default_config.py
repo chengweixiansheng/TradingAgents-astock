@@ -2,6 +2,17 @@ import os
 
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
 
+
+def _env_int(name: str, default: int) -> int:
+    """读取整数型环境变量，填了非法值就退回默认值而不是让进程起不来。"""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
 DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
@@ -12,15 +23,20 @@ DEFAULT_CONFIG = {
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
     # LLM settings
-    "llm_provider": "openai",
-    "deep_think_llm": "gpt-5.4",
-    "quick_think_llm": "gpt-5.4-mini",
+    # 这几项可用 .env 里的同名 TRADINGAGENTS_* 变量覆盖，省得每次重启
+    # Web/CLI 都要重新选一遍模型。注意 load_dotenv() 必须在导入本模块之前
+    # 执行（web/app.py 和 cli/main.py 都已保证这个顺序）。
+    "llm_provider": os.getenv("TRADINGAGENTS_LLM_PROVIDER", "openai"),
+    "deep_think_llm": os.getenv("TRADINGAGENTS_DEEP_THINK_LLM", "gpt-5.4"),
+    "quick_think_llm": os.getenv("TRADINGAGENTS_QUICK_THINK_LLM", "gpt-5.4-mini"),
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a
     # provider-specific URL here would leak (e.g. OpenAI's /v1 was previously
     # being forwarded to Gemini, producing malformed request URLs).
-    "backend_url": None,
+    # BACKEND_URL 是历史名字，保留兼容；空字符串按未设置处理（否则会覆盖掉
+    # provider 自己的默认端点，导致请求打到错误的 URL）。
+    "backend_url": os.getenv("TRADINGAGENTS_BACKEND_URL") or os.getenv("BACKEND_URL") or None,
     # 单次回复的最大输出 token 数。None = 用 provider 自己的默认值。
     # 报告写到一半就断，通常就是撞了这个上限（不是上下文超长）——把它调大即可（#91）。
     # 走 anthropic 通道跑**第三方模型**（Kimi 等）时尤其要注意：langchain-anthropic
@@ -81,7 +97,7 @@ DEFAULT_CONFIG = {
     "checkpoint_enabled": False,
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
-    "output_language": "Chinese",
+    "output_language": os.getenv("TRADINGAGENTS_OUTPUT_LANGUAGE", "Chinese"),
     # How many days of price/indicator history the market analyst covers
     # (the "analysis window", ending at the analysis date). Drives the
     # look_back_days the market analyst passes to get_stock_data /
@@ -90,8 +106,8 @@ DEFAULT_CONFIG = {
     # None keeps the previous behaviour (the model's own default, ~30). (#16)
     "market_lookback_days": None,
     # Debate and discussion settings
-    "max_debate_rounds": 1,
-    "max_risk_discuss_rounds": 1,
+    "max_debate_rounds": _env_int("TRADINGAGENTS_MAX_DEBATE_ROUNDS", 1),
+    "max_risk_discuss_rounds": _env_int("TRADINGAGENTS_MAX_RISK_ROUNDS", 1),
     "max_recur_limit": 100,
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
