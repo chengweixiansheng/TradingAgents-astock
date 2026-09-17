@@ -1474,5 +1474,44 @@ def review(
         raise typer.Exit(1)
 
 
+@app.command()
+def market(
+    action: str = typer.Argument("overview", help="操作: overview/zt/firstboard/ladder"),
+    date: str = typer.Option(None, "--date", "-d", help="日期 YYYY-MM-DD"),
+):
+    """盘面数据：涨停池/首板分析/昨日梯队/市场概览。
+
+    示例：
+      tradingagents market overview        # 市场概览
+      tradingagents market zt              # 涨停池
+      tradingagents market firstboard      # 首板分析
+      tradingagents market ladder          # 昨日梯队
+    """
+    from tradingagents.market import astock as _astock
+    from tradingagents.market import market as _market
+    from tradingagents.market import firstboard as _fb
+    from tradingagents.market import previous_ladder as _ladder
+
+    try:
+        if action == "overview":
+            data = _market.market_overview()
+            console.print(Panel(str(data), title="市场概览", border_style="cyan"))
+        elif action == "zt":
+            data = _astock.zt_pool(date)
+            console.print(Panel(str(data)[:2000], title="涨停池", border_style="red"))
+        elif action == "firstboard":
+            data = _fb.firstboard_analysis(date)
+            console.print(Panel(str(data)[:2000], title="首板分析", border_style="yellow"))
+        elif action == "ladder":
+            data = _ladder.previous_ladder(date)
+            console.print(Panel(str(data)[:2000], title="昨日梯队", border_style="magenta"))
+        else:
+            console.print(f"[red]未知操作: {action}[/red]")
+            raise typer.Exit(1)
+    except Exception as exc:
+        console.print(f"[red]盘面数据获取失败：{type(exc).__name__}: {exc}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
